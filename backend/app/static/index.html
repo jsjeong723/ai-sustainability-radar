@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AI Sustainability Radar</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+:root{color-scheme:dark;font-family:Inter,system-ui,sans-serif;background:#101418;color:#edf2f7}
+body{margin:0;padding:28px;max-width:1200px;margin:auto}.muted{color:#9aa8b5}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}.card{background:#1a222b;border:1px solid #303b46;border-radius:14px;padding:18px}.row{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}button{background:#2c78c4;color:white;border:0;border-radius:8px;padding:10px 14px;cursor:pointer;margin:4px}button:disabled{opacity:.5}canvas{max-height:260px}.pill{font-size:12px;padding:4px 8px;border-radius:20px;background:#263c31;color:#9de0b3}.error{color:#ff9b9b;white-space:pre-wrap}.value{font-size:28px;font-weight:700;margin:10px 0}table{width:100%;border-collapse:collapse}td,th{text-align:left;border-bottom:1px solid #34404b;padding:8px;font-size:13px}a{color:#8fc7ff}
+</style></head>
+<body>
+<header class="row"><div><h1>AI 사회 지속성 레이더</h1><div class="muted">BLS · EIA 공식 통계 자동 수집 | 미국 중심</div></div><div><button onclick="collect()">지금 수집</button><button onclick="refresh()">새로고침</button></div></header>
+<p id="notice" class="muted">데이터 상태 확인 중…</p><div id="error" class="error"></div>
+<section class="grid" id="cards"></section>
+<section class="card" style="margin-top:16px"><h2>최근 수집 실행</h2><div id="runs" class="muted">아직 수집 기록이 없습니다.</div></section>
+<section class="card" style="margin-top:16px"><h2>관측값 원자료</h2><div style="overflow:auto"><table><thead><tr><th>기간</th><th>출처</th><th>지표</th><th>값</th><th>단위</th><th>원문</th></tr></thead><tbody id="rows"></tbody></table></div></section>
+<script>
+const labels={
+"EMPLOYMENT_TOTAL":"전체 비농업 고용",
+"UNEMPLOYMENT_RATE":"실업률",
+"HOURLY_EARNINGS":"민간부문 평균 시간당 임금",
+"ELECTRICITY_RETAIL_SALES":"미국 소매 전력 판매량"
+};
+async function api(url,opts){const r=await fetch(url,opts);const j=await r.json();if(!r.ok)throw new Error(j.detail||JSON.stringify(j));return j}
+async function refresh(){
+ document.getElementById('error').textContent='';
+ try{
+  const [obs,status]=await Promise.all([api('/api/observations?limit=500'),api('/api/status')]);
+  document.getElementById('notice').textContent=`저장된 관측값 ${status.observation_count}개 · 마지막 화면 갱신 ${new Date().toLocaleString()}`;
+  const groups={};for(const o of obs){(groups[o.indicator_code]??=[]).push(o)}
+  const cards=document.getElementById('cards');cards.innerHTML='';
+  Object.entries(groups).forEach(([code,arr],i)=>{
+   const latest=arr[arr.length-1];const div=document.createElement('div');div.className='card';
+   div.innerHTML=`<div class="muted">${labels[code]||code}</div><div class="value">${Number(latest.value).toLocaleString(undefined,{maximumFractionDigits:2})}</div><div class="muted">${latest.period} · ${latest.unit} · ${latest.source}</div><canvas id="chart${i}"></canvas>`;
+   cards.appendChild(div);
+   new Chart(document.getElementById(`chart${i}`),{type:'line',data:{labels:arr.map(x=>x.period),datasets:[{label:labels[code]||code,data:arr.map(x=>x.value),borderColor:'#65b7ff',backgroundColor:'#65b7ff22',fill:true,tension:.2,pointRadius:0}]},options:{responsive:true,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#9aa8b5',maxTicksLimit:6}},y:{ticks:{color:'#9aa8b5'}}}}});
+  });
+  document.getElementById('rows').innerHTML=obs.slice(-100).reverse().map(o=>`<tr><td>${o.period}</td><td>${o.source}</td><td>${labels[o.indicator_code]||o.indicator_code}</td><td>${Number(o.value).toLocaleString()}</td><td>${o.unit}</td><td><a href="${o.source_url}" target="_blank" rel="noopener">원문</a></td></tr>`).join('');
+  document.getElementById('runs').innerHTML=status.latest_runs.map(r=>`<p><span class="pill">${r.source} · ${r.status}</span> 수신 ${r.records_received}, 신규 ${r.records_inserted} · ${r.message||''}</p>`).join('')||'수집 기록 없음';
+ }catch(e){document.getElementById('error').textContent=e.message}
+}
+async function collect(){
+ const btns=document.querySelectorAll('button');btns.forEach(b=>b.disabled=true);
+ document.getElementById('notice').textContent='BLS와 EIA 자료를 수집하고 있습니다…';
+ try{const result=await api('/api/collect/all',{method:'POST'});document.getElementById('notice').textContent='수집 작업 완료: '+result.status; if(result.errors?.length)document.getElementById('error').textContent=JSON.stringify(result.errors,null,2);await refresh()}
+ catch(e){document.getElementById('error').textContent=e.message}
+ finally{btns.forEach(b=>b.disabled=false)}
+}
+refresh();
+</script></body></html>
