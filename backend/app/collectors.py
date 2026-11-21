@@ -43,9 +43,25 @@ async def collect_bls(db: Session) -> dict:
                 period_code = item.get("period", "")
                 if not period_code.startswith("M") or period_code == "M13":
                     continue
+                
+                raw_value = item.get("value")
+                
+                # BLS 결측값은 0으로 처리하지 않고 건너뜀
+                if raw_value is None or str(raw_value).strip() in ("", "-", "—"):
+                    continue
+                
+                try:
+                    value = float(str(raw_value).replace(",", ""))
+                except (ValueError, TypeError):
+                    continue
+                
                 received += 1
-                period = f"{item['year']}-{period_code[1:]}"
-                value = float(item["value"])
+                period = f"{item['year']}-{period_code[1:]}"                
+                
+                # received += 1
+                # period = f"{item['year']}-{period_code[1:]}"
+                # value = float(item["value"])
+                
                 existing = db.scalar(select(Observation).where(
                     Observation.source == "BLS",
                     Observation.series_id == sid,
